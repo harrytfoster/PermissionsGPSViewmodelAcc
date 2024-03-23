@@ -15,9 +15,11 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context.LOCATION_SERVICE
 import android.content.pm.PackageManager
+import org.osmdroid.config.Configuration
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.preference.PreferenceManager
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -32,17 +34,40 @@ import androidx.core.content.ContextCompat.getSystemService
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import org.osmdroid.util.GeoPoint
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextField
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.views.MapView
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.modifier.modifierLocalConsumer
+import androidx.compose.ui.unit.dp
+import org.osmdroid.views.overlay.Marker
 
 data class LatLon(val lat: Double, val lon: Double) // our LatLon class
 
-class LatLonViewModel: ViewModel() {
-    var latLon = LatLon(51.05, -0.72)
+class LatLonViewModel: ViewModel() { // Create View Model
+    var latLon = LatLon(51.05, -0.72) // Set original Coords
         set(newValue) {
             field = newValue
             latLonLiveData.value = newValue
         }
 
-    var latLonLiveData = MutableLiveData<LatLon>()
+    var latLonLiveData = MutableLiveData<LatLon>() // Make it live data
 }
 
 
@@ -51,9 +76,12 @@ class MainActivity : ComponentActivity(), LocationListener { // LocationListener
     val viewModel: LatLonViewModel by viewModels() // Access ViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Configuration.getInstance().load(this, getPreferences(MODE_PRIVATE))
         checkPermissions()
         setContent {
-            DisplayCoords(LatLonViewModel())
+            //DisplayCoords(viewModel)
+            //MapToLocation(viewModel)
+            AddMarker()
         }
     }
 
@@ -93,7 +121,7 @@ class MainActivity : ComponentActivity(), LocationListener { // LocationListener
             this,
             "Latitude: ${location.latitude}, Longitude: ${location.longitude}",
             Toast.LENGTH_LONG
-        ).show()
+        )
         viewModel.latLon = LatLon(location.latitude, location.longitude)
     }
 
@@ -113,12 +141,55 @@ class MainActivity : ComponentActivity(), LocationListener { // LocationListener
 
 
     @Composable
-    fun DisplayCoords(latLonViewModel: LatLonViewModel) {
+    fun DisplayCoords(latLonViewModel: LatLonViewModel) { // Takes import of the ViewModel
+        var geoLocation by remember { mutableStateOf(GeoPoint(0.0, 0.0)) } // Set the geopoint
+        val context = LocalContext.current
+        latLonViewModel.latLonLiveData.observe(context as ComponentActivity){LatLon -> // Observe current lat and lon
+            geoLocation = GeoPoint(LatLon.lat, LatLon.lon) // Set the geopoint to the lat lon
+        }
+        Text("Latitude: ${geoLocation.latitude} Longitude: ${geoLocation.longitude}")
+    }
+
+    @Composable
+    fun MapToLocation(latLonViewModel: LatLonViewModel){ // Moving map to the location of user
         var geoLocation by remember { mutableStateOf(GeoPoint(0.0, 0.0)) }
         val context = LocalContext.current
         latLonViewModel.latLonLiveData.observe(context as ComponentActivity){LatLon ->
             geoLocation = GeoPoint(LatLon.lat, LatLon.lon)
         }
-        Text("Latitude: ${geoLocation.latitude} Longitude: ${geoLocation.longitude}")
+        AndroidView(factory = {
+                context ->
+            MapView(context).apply()
+            {
+                controller.setCenter(geoLocation)
+                controller.setZoom(14.0)
+                setTileSource(TileSourceFactory.MAPNIK)
+                isClickable =true
+            }},
+            update = {view -> view.controller.setCenter(geoLocation)})
     }
 
+    @Composable
+    fun AddMarker(){
+        AndroidView (
+
+            factory =  { ctx ->
+                Configuration.getInstance()
+                    .load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx))
+
+                val map1 = MapView(ctx).apply {// Creating Map
+                    setMultiTouchControls(true)
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    controller.setZoom(14.0)
+                    controller.setCenter(GeoPoint(51.05, -0.72))
+                }
+                val marker = Marker(map1) // Making marker and passing map into it
+                marker.apply {
+                    position = GeoPoint(51.05, -0.72) // Setting location of marker
+                    title = "Fernhurst, village in West Sussex" // Setting Name of marker
+                }
+                map1.overlays.add(marker) // Adding the marker to the map
+                map1 // last statement is return value of lambda
+            }
+        )
+    }
